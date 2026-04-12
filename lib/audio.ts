@@ -1,6 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 const ALLOWED_AUDIO_TYPES = new Set([
   "audio/mpeg",
   "audio/mp3",
@@ -13,8 +10,13 @@ const ALLOWED_AUDIO_TYPES = new Set([
 
 const ALLOWED_EXTENSIONS = new Set([".mp3", ".m4a", ".wav"]);
 
+function getFileExtension(fileName: string) {
+  const parts = fileName.toLowerCase().split(".");
+  return parts.length > 1 ? `.${parts.pop()}` : "";
+}
+
 export function isAllowedAudioFile(file: File) {
-  const extension = path.extname(file.name).toLowerCase();
+  const extension = getFileExtension(file.name);
 
   return (
     ALLOWED_EXTENSIONS.has(extension) ||
@@ -22,16 +24,18 @@ export function isAllowedAudioFile(file: File) {
   );
 }
 
-export async function saveUploadedAudio(file: File) {
-  const uploadsDir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(uploadsDir, { recursive: true });
+function slugifySegment(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 48);
+}
 
-  const extension = path.extname(file.name).toLowerCase() || ".mp3";
-  const fileName = `${crypto.randomUUID()}${extension}`;
-  const absolutePath = path.join(uploadsDir, fileName);
+export function createAudioStorageKey(title: string, fileName: string) {
+  const extension = getFileExtension(fileName) || ".mp3";
+  const safeTitle = slugifySegment(title) || "audio";
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(absolutePath, buffer);
-
-  return `/uploads/${fileName}`;
+  return `audio/${safeTitle}-${crypto.randomUUID()}${extension}`;
 }

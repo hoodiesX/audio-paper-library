@@ -1,4 +1,3 @@
-import { prisma } from "@/lib/prisma";
 import { query } from "@/lib/d1-client";
 
 type CreateAudioItemInput = {
@@ -32,6 +31,11 @@ type D1AudioItemRow = {
 };
 
 const USE_D1 = process.env.USE_D1 === "true";
+
+async function getPrismaClient() {
+  const { prisma } = await import("@/lib/prisma");
+  return prisma;
+}
 
 function mapD1Row(row: D1AudioItemRow): AudioItemRecord {
   return {
@@ -71,6 +75,7 @@ export async function getAudioItems() {
 
   // TODO: Replace Prisma with D1 query:
   // SELECT * FROM AudioItem ORDER BY createdAt DESC;
+  const prisma = await getPrismaClient();
   return prisma.audioItem.findMany({
     orderBy: {
       createdAt: "desc",
@@ -103,17 +108,59 @@ export async function getAudioItemById(id: string) {
 
   // TODO: Replace Prisma with D1 query:
   // SELECT * FROM AudioItem WHERE id = ? LIMIT 1;
+  const prisma = await getPrismaClient();
   return prisma.audioItem.findUnique({
     where: { id },
   });
 }
 
 export async function createAudioItem(data: CreateAudioItemInput) {
+  if (USE_D1) {
+    console.log("Using D1 for write");
+
+    const item: AudioItemRecord = {
+      id: crypto.randomUUID(),
+      title: data.title,
+      topic: data.topic,
+      course: data.course,
+      filePath: data.filePath,
+      duration: data.duration ?? null,
+      createdAt: new Date(),
+      lastPositionSeconds: 0,
+    };
+
+    await query(
+      `INSERT INTO AudioItem (
+        id,
+        title,
+        topic,
+        course,
+        filePath,
+        duration,
+        createdAt,
+        lastPositionSeconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        item.id,
+        item.title,
+        item.topic,
+        item.course,
+        item.filePath,
+        item.duration,
+        item.createdAt.toISOString(),
+        item.lastPositionSeconds,
+      ],
+    );
+
+    return item;
+  }
+
   console.log("Using Prisma for write");
 
   // TODO: Replace Prisma with D1 query:
   // INSERT INTO AudioItem (id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds)
   // VALUES (?, ?, ?, ?, ?, ?, ?, 0);
+  const prisma = await getPrismaClient();
   return prisma.audioItem.create({
     data: {
       title: data.title,
@@ -128,10 +175,30 @@ export async function createAudioItem(data: CreateAudioItemInput) {
 export async function updateAudioProgress(id: string, position: number) {
   const nextPosition = Math.max(0, Math.floor(position));
 
+  if (USE_D1) {
+    console.log("Using D1 for write");
+
+    await query(
+      `UPDATE AudioItem
+       SET lastPositionSeconds = ?
+       WHERE id = ?`,
+      [nextPosition, id],
+    );
+
+    const updatedItem = await getAudioItemById(id);
+
+    if (!updatedItem) {
+      throw new Error(`Audio item not found: ${id}`);
+    }
+
+    return updatedItem;
+  }
+
   console.log("Using Prisma for write");
 
   // TODO: Replace Prisma with D1 query:
   // UPDATE AudioItem SET lastPositionSeconds = ? WHERE id = ?;
+  const prisma = await getPrismaClient();
   return prisma.audioItem.update({
     where: {
       id,

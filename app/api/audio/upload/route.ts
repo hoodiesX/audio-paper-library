@@ -1,7 +1,8 @@
 export const runtime = "edge";
 import { NextResponse } from "next/server";
-import { isAllowedAudioFile, saveUploadedAudio } from "@/lib/audio";
+import { createAudioStorageKey, isAllowedAudioFile } from "@/lib/audio";
 import { createAudioItem } from "@/lib/audio-repository";
+import { uploadAudio } from "@/lib/storage";
 
 
 export async function POST(request: Request) {
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const filePath = await saveUploadedAudio(file);
+    const storageKey = createAudioStorageKey(title, file.name);
+    const filePath = await uploadAudio(file, storageKey);
 
     const item = await createAudioItem({
       title,

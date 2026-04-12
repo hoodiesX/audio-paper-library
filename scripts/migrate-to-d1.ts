@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
-import { query } from "../lib/d1-client.ts";
+import { query } from "../lib/d1-client";
 
 const prisma = new PrismaClient();
 const BATCH_LOG_EVERY = 25;

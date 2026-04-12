@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+}
+
+a {
+  @apply text-inherit no-underline;
+}
+
+.audio-slider::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.audio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: #111111;
+  box-shadow: 0 8px 22px rgba(17, 17, 17, 0.2);
+}
+
+.audio-slider::-moz-range-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.audio-slider::-moz-range-progress {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #111111;
+}
+
+.audio-slider::-moz-range-thumb {
+  height: 1.25rem;
+  width: 1.25rem;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 9999px;
+  background: #111111;
+  box-shadow: 0 8px 22px rgba(17, 17, 17, 0.2);
+}

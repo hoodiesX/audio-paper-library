@@ -1,5 +1,7 @@
+export const runtime = "edge";
 import { NextResponse } from "next/server";
 import { updateAudioProgress } from "@/lib/audio-repository";
+
 
 export async function POST(request: Request) {
   try {

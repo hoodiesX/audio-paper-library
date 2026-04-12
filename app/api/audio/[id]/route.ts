@@ -1,5 +1,7 @@
+export const runtime = "edge";
 import { NextResponse } from "next/server";
 import { getAudioItemById } from "@/lib/audio-repository";
+
 
 type RouteContext = {
   params: {

@@ -1,6 +1,8 @@
+export const runtime = "edge";
 import { NextResponse } from "next/server";
 import { isAllowedAudioFile, saveUploadedAudio } from "@/lib/audio";
 import { createAudioItem } from "@/lib/audio-repository";
+
 
 export async function POST(request: Request) {
   try {

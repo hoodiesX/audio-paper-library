@@ -1,20 +1,117 @@
 import { execFile } from "node:child_process";
+import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { promisify } from "node:util";
-import { stdin, stdout } from "node:process";
-import {
-  deleteAudioItemById,
-  getAudioItemById,
-} from "../lib/audio-repository";
-import { getStorageKeyFromFilePath } from "../lib/storage";
 
 const execFileAsync = promisify(execFile);
 const R2_BUCKET_NAME = "audio-paper-library";
 
+type AudioItemRow = {
+  id: string;
+  title: string;
+  topic: string;
+  course: string;
+  filePath: string;
+  duration: number | string | null;
+  createdAt: string;
+  lastPositionSeconds: number | string;
+};
+
+type D1Response<T> = {
+  success: boolean;
+  errors?: Array<{ message?: string }>;
+  result?: Array<{
+    success?: boolean;
+    results?: T[];
+  }>;
+};
+
+function getRequiredEnv(name: string) {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
+function getD1Config() {
+  return {
+    accountId: getRequiredEnv("CLOUDFLARE_ACCOUNT_ID"),
+    databaseId: getRequiredEnv("CLOUDFLARE_D1_DATABASE_ID"),
+    apiToken: getRequiredEnv("CLOUDFLARE_D1_API_TOKEN"),
+  };
+}
+
+async function queryD1<T>(sql: string, params: Array<string> = []) {
+  const config = getD1Config();
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.databaseId}/query`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiToken}`,
+      },
+      body: JSON.stringify({
+        sql,
+        params,
+      }),
+    },
+  );
+
+  const payload = (await response.json()) as D1Response<T>;
+
+  if (!response.ok || !payload.success) {
+    const errorMessage =
+      payload.errors?.map((error) => error.message).filter(Boolean).join(", ") ||
+      "D1 query failed.";
+
+    throw new Error(errorMessage);
+  }
+
+  return payload.result?.[0]?.results ?? [];
+}
+
+function getStorageKeyFromFilePath(filePath: string) {
+  const normalized = filePath.trim();
+
+  if (!normalized) {
+    throw new Error("filePath is empty and cannot be mapped to an R2 object key.");
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    const url = new URL(normalized);
+    const key = url.pathname.replace(/^\/+/, "");
+
+    if (!key) {
+      throw new Error("filePath URL does not contain a valid R2 object key.");
+    }
+
+    return key;
+  }
+
+  return normalized.replace(/^\/+/, "");
+}
+
+async function loadAudioItem(audioId: string) {
+  const rows = await queryD1<AudioItemRow>(
+    `SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
+     FROM AudioItem
+     WHERE id = ?
+     LIMIT 1`,
+    [audioId],
+  );
+
+  return rows[0] ?? null;
+}
+
 async function deleteFromR2(storageKey: string) {
   const objectPath = `${R2_BUCKET_NAME}/${storageKey}`;
 
-  console.log("[delete-audio] deleting object from R2", { objectPath });
+  console.log("[delete-audio] deleting from R2", { objectPath });
 
   await execFileAsync(
     "npx",
@@ -25,6 +122,14 @@ async function deleteFromR2(storageKey: string) {
   );
 
   console.log("[delete-audio] R2 delete completed", { objectPath });
+}
+
+async function deleteFromD1(audioId: string) {
+  console.log("[delete-audio] deleting metadata from D1", { audioId });
+
+  await queryD1("DELETE FROM AudioItem WHERE id = ?", [audioId]);
+
+  console.log("[delete-audio] D1 delete completed", { audioId });
 }
 
 async function confirmDeletion() {
@@ -42,8 +147,6 @@ async function confirmDeletion() {
 }
 
 async function main() {
-  process.env.USE_D1 = "true";
-
   const audioId = process.argv[2]?.trim();
 
   if (!audioId) {
@@ -53,7 +156,7 @@ async function main() {
   }
 
   console.log("[delete-audio] loading audio item", { audioId });
-  const item = await getAudioItemById(audioId);
+  const item = await loadAudioItem(audioId);
 
   if (!item) {
     console.log("[delete-audio] audio item not found, nothing to delete", {
@@ -90,9 +193,7 @@ async function main() {
   }
 
   try {
-    console.log("[delete-audio] deleting metadata row from D1", { audioId });
-    await deleteAudioItemById(audioId);
-    console.log("[delete-audio] metadata delete completed", { audioId });
+    await deleteFromD1(audioId);
     console.log("[delete-audio] deletion completed successfully");
   } catch (error) {
     console.error(

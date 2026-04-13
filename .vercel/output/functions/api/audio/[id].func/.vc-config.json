@@ -1,0 +1,18 @@
+{
+  "runtime": "edge",
+  "name": "api/audio/[id]",
+  "deploymentTarget": "v8-worker",
+  "entrypoint": "index.js",
+  "assets": [],
+  "framework": {
+    "slug": "nextjs",
+    "version": "14.2.35"
+  },
+  "environment": {
+    "__NEXT_BUILD_ID": "_ytllVjWgGo1sVAAipCDo",
+    "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "nGQ2XGwocfgxmnI831oG+3TOqTYC9SHn/u3YDHQwWYI=",
+    "__NEXT_PREVIEW_MODE_ID": "4c2e273a8cf598a464bbaf7ec0287bfc",
+    "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "c49e467bd063e6de67e85cfb9895c58b68469eb2760458ffbb6382b810f2ad07",
+    "__NEXT_PREVIEW_MODE_SIGNING_KEY": "82b6e7521dccf0a822ef928e5ca60a301f0b253b2ebc7492cfbe58bb7bb18ea2"
+  }
+}

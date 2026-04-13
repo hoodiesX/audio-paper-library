@@ -8,6 +8,11 @@ type CreateAudioItemInput = {
   duration?: number | null;
 };
 
+type AudioItemFilters = {
+  topic?: string;
+  course?: string;
+};
+
 type AudioItemRecord = {
   id: string;
   title: string;
@@ -51,6 +56,11 @@ async function getPrismaClient() {
   return prisma;
 }
 
+function normalizeFilterValue(value?: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function mapD1Row(row: D1AudioItemRow): AudioItemRecord {
   return {
     id: row.id,
@@ -67,19 +77,42 @@ function mapD1Row(row: D1AudioItemRow): AudioItemRecord {
   };
 }
 
-export async function getAudioItems() {
+export async function getAudioItems(filters: AudioItemFilters = {}) {
+  const topic = normalizeFilterValue(filters.topic);
+  const course = normalizeFilterValue(filters.course);
+
   if (shouldUseD1()) {
     console.log("[audio-repository] using D1 for read: getAudioItems");
+
+    const whereClauses: string[] = [];
+    const params: Array<string> = [];
+
+    if (topic) {
+      whereClauses.push("topic = ?");
+      params.push(topic);
+    }
+
+    if (course) {
+      whereClauses.push("course = ?");
+      params.push(course);
+    }
+
+    const whereSql =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const rows = await query<D1AudioItemRow>(
       `SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
        FROM AudioItem
+       ${whereSql}
        ORDER BY createdAt DESC`,
+      params,
     );
 
     console.log("[audio-repository] audio item read", {
       source: "D1",
       count: rows.length,
+      topic,
+      course,
     });
 
     return rows.map(mapD1Row);
@@ -88,10 +121,62 @@ export async function getAudioItems() {
   console.log("[audio-repository] using local Prisma fallback: getAudioItems");
   const prisma = await getPrismaClient();
   return prisma.audioItem.findMany({
+    where: {
+      ...(topic ? { topic } : {}),
+      ...(course ? { course } : {}),
+    },
     orderBy: {
       createdAt: "desc",
     },
   });
+}
+
+export async function getAudioFilterOptions() {
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for read: getAudioFilterOptions");
+
+    const [topicRows, courseRows] = await Promise.all([
+      query<{ topic: string }>(
+        `SELECT DISTINCT topic
+         FROM AudioItem
+         WHERE topic IS NOT NULL AND TRIM(topic) != ''
+         ORDER BY topic ASC`,
+      ),
+      query<{ course: string }>(
+        `SELECT DISTINCT course
+         FROM AudioItem
+         WHERE course IS NOT NULL AND TRIM(course) != ''
+         ORDER BY course ASC`,
+      ),
+    ]);
+
+    return {
+      topics: topicRows.map((row) => row.topic).filter(Boolean),
+      courses: courseRows.map((row) => row.course).filter(Boolean),
+    };
+  }
+
+  console.log(
+    "[audio-repository] using local Prisma fallback: getAudioFilterOptions",
+  );
+  const prisma = await getPrismaClient();
+  const [topicRows, courseRows] = await Promise.all([
+    prisma.audioItem.findMany({
+      select: { topic: true },
+      distinct: ["topic"],
+      orderBy: { topic: "asc" },
+    }),
+    prisma.audioItem.findMany({
+      select: { course: true },
+      distinct: ["course"],
+      orderBy: { course: "asc" },
+    }),
+  ]);
+
+  return {
+    topics: topicRows.map((row) => row.topic).filter(Boolean),
+    courses: courseRows.map((row) => row.course).filter(Boolean),
+  };
 }
 
 export async function getAudioItemById(id: string) {

@@ -1,5 +1,6 @@
 export const runtime = "edge";
 
+import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextResponse } from "next/server";
 
 type R2PutOptions = {
@@ -16,22 +17,11 @@ type R2BucketLike = {
   ) => Promise<unknown>;
 };
 
-type UploadRouteContext = {
-  env?: {
-    AUDIO_BUCKET?: R2BucketLike;
-  };
-  cloudflare?: {
-    env?: {
-      AUDIO_BUCKET?: R2BucketLike;
-    };
-  };
+type CloudflareEnv = {
+  AUDIO_BUCKET?: R2BucketLike;
 };
 
-function getBucket(context: UploadRouteContext) {
-  return context.env?.AUDIO_BUCKET ?? context.cloudflare?.env?.AUDIO_BUCKET;
-}
-
-export async function POST(request: Request, context: UploadRouteContext) {
+export async function POST(request: Request) {
   console.log("[audio-upload-debug] route entered");
 
   try {
@@ -69,14 +59,17 @@ export async function POST(request: Request, context: UploadRouteContext) {
       bytes: fileBuffer.byteLength,
     });
 
-    const bucket = getBucket(context);
+    const { env } = getRequestContext();
+    const bucket = (env as CloudflareEnv).AUDIO_BUCKET;
+
     console.log("[audio-upload-debug] bucket resolved", {
       hasBucket: Boolean(bucket),
     });
 
     if (!bucket) {
+      console.error("[audio-upload-debug] missing AUDIO_BUCKET binding");
       return NextResponse.json(
-        { error: "AUDIO_BUCKET binding not found." },
+        { error: "AUDIO_BUCKET binding not found in Cloudflare request context." },
         { status: 500 },
       );
     }

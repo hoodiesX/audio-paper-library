@@ -1,6 +1,6 @@
 {
   "runtime": "edge",
-  "name": "api/audio/progress",
+  "name": "index",
   "deploymentTarget": "v8-worker",
   "entrypoint": "index.js",
   "assets": [],

@@ -1,3 +1,5 @@
+import { getRequestContext } from "@cloudflare/next-on-pages";
+
 type D1QueryValue = string | number | boolean | null;
 
 type D1PreparedStatementResult<T> = {
@@ -39,9 +41,25 @@ function getBoundDatabase(options?: D1QueryOptions) {
     return options.env.DB;
   }
 
+  try {
+    const requestContext = getRequestContext();
+    const requestDb = requestContext?.env?.DB as D1DatabaseLike | undefined;
+
+    if (requestDb) {
+      console.log("[d1-client] using D1 binding from request context");
+      return requestDb;
+    }
+  } catch (error) {
+    console.log("[d1-client] request context not available");
+  }
+
   const globalBinding = (globalThis as typeof globalThis & {
     __AUDIO_PAPER_LIBRARY_D1__?: D1DatabaseLike;
   }).__AUDIO_PAPER_LIBRARY_D1__;
+
+  if (globalBinding) {
+    console.log("[d1-client] using global D1 binding fallback");
+  }
 
   return globalBinding;
 }
@@ -93,7 +111,7 @@ export async function query<T = Record<string, unknown>>(
       "D1 is not configured. Provide an env.DB binding or set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID and CLOUDFLARE_D1_API_TOKEN.",
     );
   }
-
+  console.log("[d1-client] using REST fallback for D1 query");
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${restConfig.accountId}/d1/database/${restConfig.databaseId}/query`,
     {

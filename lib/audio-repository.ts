@@ -323,3 +323,30 @@ export async function updateAudioProgress(id: string, position: number) {
     },
   });
 }
+
+export async function deleteAudioItemById(id: string) {
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for write: deleteAudioItemById", {
+      id,
+    });
+
+    await query(`DELETE FROM AudioItem WHERE id = ?`, [id]);
+
+    console.log("[audio-repository] audio item delete", {
+      source: "D1",
+      id,
+    });
+
+    return;
+  }
+
+  console.log("[audio-repository] using local Prisma fallback: deleteAudioItemById", {
+    id,
+  });
+  const prisma = await getPrismaClient();
+  await prisma.audioItem.delete({
+    where: {
+      id,
+    },
+  });
+}

@@ -67,3 +67,24 @@ export function getAudioUrl(
 
   return `${baseUrl}/${normalizedKey}`;
 }
+
+export function getStorageKeyFromFilePath(filePath: string): string {
+  const normalizedFilePath = filePath.trim();
+
+  if (!normalizedFilePath) {
+    throw new Error("Audio filePath is empty and cannot be mapped to an R2 key.");
+  }
+
+  if (/^https?:\/\//i.test(normalizedFilePath)) {
+    const url = new URL(normalizedFilePath);
+    const key = url.pathname.replace(/^\/+/, "");
+
+    if (!key) {
+      throw new Error("Audio filePath URL does not contain a valid object key.");
+    }
+
+    return key;
+  }
+
+  return normalizedFilePath.replace(/^\/+/, "");
+}

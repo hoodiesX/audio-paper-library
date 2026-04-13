@@ -43,7 +43,8 @@ function getBoundDatabase(options?: D1QueryOptions) {
 
   try {
     const requestContext = getRequestContext();
-    const requestDb = requestContext?.env?.DB as D1DatabaseLike | undefined;
+    const requestEnv = requestContext?.env as { DB?: D1DatabaseLike } | undefined;
+    const requestDb = requestEnv?.DB;
 
     if (requestDb) {
       console.log("[d1-client] using D1 binding from request context");

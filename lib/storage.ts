@@ -12,21 +12,17 @@ type R2BucketLike = {
   ) => Promise<unknown>;
 };
 
-function getR2Bucket() {
-  const globalScope = globalThis as typeof globalThis & {
-    AUDIO_BUCKET?: R2BucketLike;
-    __AUDIO_PAPER_LIBRARY_R2__?: R2BucketLike;
-  };
+export type StorageEnv = {
+  AUDIO_BUCKET: R2BucketLike;
+  PUBLIC_AUDIO_BASE_URL?: string;
+  R2_PUBLIC_BASE_URL?: string;
+};
 
-  return globalScope.AUDIO_BUCKET ?? globalScope.__AUDIO_PAPER_LIBRARY_R2__;
-}
-
-function normalizePublicBaseUrl() {
-  const globalScope = globalThis as typeof globalThis & {
-    PUBLIC_AUDIO_BASE_URL?: string;
-  };
-
-  const baseUrl = globalScope.PUBLIC_AUDIO_BASE_URL;
+function normalizePublicBaseUrl(env?: Pick<
+  StorageEnv,
+  "PUBLIC_AUDIO_BASE_URL" | "R2_PUBLIC_BASE_URL"
+>) {
+  const baseUrl = env?.PUBLIC_AUDIO_BASE_URL || env?.R2_PUBLIC_BASE_URL;
 
   if (!baseUrl) {
     throw new Error(
@@ -39,10 +35,9 @@ function normalizePublicBaseUrl() {
 export async function uploadAudio(
   file: ArrayBuffer | Blob,
   key: string,
+  env: StorageEnv,
 ): Promise<string> {
-  const bucket = getR2Bucket();
-
-  if (!bucket) {
+  if (!env?.AUDIO_BUCKET) {
     throw new Error(
       "R2 bucket binding is not configured. Add an AUDIO_BUCKET binding in Cloudflare Pages.",
     );
@@ -50,21 +45,24 @@ export async function uploadAudio(
 
   const body = file instanceof Blob ? file : new Blob([file]);
 
-  await bucket.put(key, body, {
+  await env.AUDIO_BUCKET.put(key, body, {
     httpMetadata: {
       contentType: body.type || "application/octet-stream",
     },
   });
 
-  return getAudioUrl(key);
+  return getAudioUrl(key, env);
 }
 
-export function getAudioUrl(key: string): string {
+export function getAudioUrl(
+  key: string,
+  env?: Pick<StorageEnv, "PUBLIC_AUDIO_BASE_URL" | "R2_PUBLIC_BASE_URL">,
+): string {
   if (/^https?:\/\//i.test(key)) {
     return key;
   }
 
-  const baseUrl = normalizePublicBaseUrl();
+  const baseUrl = normalizePublicBaseUrl(env);
   const normalizedKey = key.replace(/^\/+/, "");
 
   return `${baseUrl}/${normalizedKey}`;

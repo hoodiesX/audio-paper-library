@@ -30,7 +30,21 @@ type D1AudioItemRow = {
   lastPositionSeconds: number | string;
 };
 
-const USE_D1 = process.env.USE_D1 === "true";
+function isCloudflareRuntime() {
+  return process.env.CF_PAGES === "1";
+}
+
+function shouldUseD1() {
+  return (
+    isCloudflareRuntime() ||
+    process.env.USE_D1 === "true" ||
+    Boolean(
+      process.env.CLOUDFLARE_ACCOUNT_ID &&
+        process.env.CLOUDFLARE_D1_DATABASE_ID &&
+        process.env.CLOUDFLARE_D1_API_TOKEN,
+    )
+  );
+}
 
 async function getPrismaClient() {
   const { prisma } = await import("@/lib/prisma");
@@ -54,27 +68,24 @@ function mapD1Row(row: D1AudioItemRow): AudioItemRecord {
 }
 
 export async function getAudioItems() {
-  if (USE_D1) {
-    console.log("Using D1 for read");
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for read: getAudioItems");
 
-    // TODO: Replace Prisma path entirely after D1 rollout is verified.
-    // SQL equivalent:
-    // SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
-    // FROM AudioItem
-    // ORDER BY createdAt DESC;
     const rows = await query<D1AudioItemRow>(
       `SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
        FROM AudioItem
        ORDER BY createdAt DESC`,
     );
 
+    console.log("[audio-repository] audio item read", {
+      source: "D1",
+      count: rows.length,
+    });
+
     return rows.map(mapD1Row);
   }
 
-  console.log("Using Prisma for read");
-
-  // TODO: Replace Prisma with D1 query:
-  // SELECT * FROM AudioItem ORDER BY createdAt DESC;
+  console.log("[audio-repository] using local Prisma fallback: getAudioItems");
   const prisma = await getPrismaClient();
   return prisma.audioItem.findMany({
     orderBy: {
@@ -84,15 +95,11 @@ export async function getAudioItems() {
 }
 
 export async function getAudioItemById(id: string) {
-  if (USE_D1) {
-    console.log("Using D1 for read");
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for read: getAudioItemById", {
+      id,
+    });
 
-    // TODO: Replace Prisma path entirely after D1 rollout is verified.
-    // SQL equivalent:
-    // SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
-    // FROM AudioItem
-    // WHERE id = ?
-    // LIMIT 1;
     const rows = await query<D1AudioItemRow>(
       `SELECT id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds
        FROM AudioItem
@@ -101,13 +108,18 @@ export async function getAudioItemById(id: string) {
       [id],
     );
 
+    console.log("[audio-repository] audio item read", {
+      source: "D1",
+      id,
+      found: Boolean(rows[0]),
+    });
+
     return rows[0] ? mapD1Row(rows[0]) : null;
   }
 
-  console.log("Using Prisma for read");
-
-  // TODO: Replace Prisma with D1 query:
-  // SELECT * FROM AudioItem WHERE id = ? LIMIT 1;
+  console.log("[audio-repository] using local Prisma fallback: getAudioItemById", {
+    id,
+  });
   const prisma = await getPrismaClient();
   return prisma.audioItem.findUnique({
     where: { id },
@@ -115,8 +127,12 @@ export async function getAudioItemById(id: string) {
 }
 
 export async function createAudioItem(data: CreateAudioItemInput) {
-  if (USE_D1) {
-    console.log("Using D1 for write");
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for write: createAudioItem", {
+      title: data.title,
+      topic: data.topic,
+      course: data.course,
+    });
 
     const item: AudioItemRecord = {
       id: crypto.randomUUID(),
@@ -152,14 +168,19 @@ export async function createAudioItem(data: CreateAudioItemInput) {
       ],
     );
 
+    console.log("[audio-repository] audio item create", {
+      source: "D1",
+      id: item.id,
+    });
+
     return item;
   }
 
-  console.log("Using Prisma for write");
-
-  // TODO: Replace Prisma with D1 query:
-  // INSERT INTO AudioItem (id, title, topic, course, filePath, duration, createdAt, lastPositionSeconds)
-  // VALUES (?, ?, ?, ?, ?, ?, ?, 0);
+  console.log("[audio-repository] using local Prisma fallback: createAudioItem", {
+    title: data.title,
+    topic: data.topic,
+    course: data.course,
+  });
   const prisma = await getPrismaClient();
   return prisma.audioItem.create({
     data: {
@@ -175,8 +196,11 @@ export async function createAudioItem(data: CreateAudioItemInput) {
 export async function updateAudioProgress(id: string, position: number) {
   const nextPosition = Math.max(0, Math.floor(position));
 
-  if (USE_D1) {
-    console.log("Using D1 for write");
+  if (shouldUseD1()) {
+    console.log("[audio-repository] using D1 for write: updateAudioProgress", {
+      id,
+      position: nextPosition,
+    });
 
     await query(
       `UPDATE AudioItem
@@ -191,13 +215,19 @@ export async function updateAudioProgress(id: string, position: number) {
       throw new Error(`Audio item not found: ${id}`);
     }
 
+    console.log("[audio-repository] progress update", {
+      source: "D1",
+      id,
+      position: nextPosition,
+    });
+
     return updatedItem;
   }
 
-  console.log("Using Prisma for write");
-
-  // TODO: Replace Prisma with D1 query:
-  // UPDATE AudioItem SET lastPositionSeconds = ? WHERE id = ?;
+  console.log("[audio-repository] using local Prisma fallback: updateAudioProgress", {
+    id,
+    position: nextPosition,
+  });
   const prisma = await getPrismaClient();
   return prisma.audioItem.update({
     where: {

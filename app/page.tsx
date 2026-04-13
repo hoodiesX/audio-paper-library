@@ -1,3 +1,4 @@
+export const runtime = "edge";
 import Link from "next/link";
 import { AudioCard } from "@/components/audio-card";
 import { getAudioItems } from "@/lib/audio-repository";

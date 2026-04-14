@@ -1,7 +1,5 @@
 # Future Evolutions
 
-This document describes realistic next steps, not speculative platform fantasies.
-
 ## Near-Term Improvements
 
 ### Better Upload Feedback

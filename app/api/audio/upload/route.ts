@@ -5,25 +5,55 @@ import { NextResponse } from "next/server";
 import { createAudioStorageKey, isAllowedAudioFile } from "@/lib/audio";
 import { createAudioItem } from "@/lib/audio-repository";
 import { StorageEnv, uploadAudio } from "@/lib/storage";
+import {
+  isTurnstileEnabled,
+  normalizeMetadataValue,
+  checkUploadRateLimit,
+  recordUploadAttempt,
+  validateUploadFileSize,
+  validateUploadMetadata,
+  verifyTurnstileToken,
+} from "@/lib/upload-security";
 
-type CloudflareRequestEnv = Partial<StorageEnv>;
+type CloudflareRequestEnv = Partial<
+  StorageEnv & {
+    TURNSTILE_ENABLED?: string;
+    TURNSTILE_SECRET_KEY?: string;
+  }
+>;
 
 export async function POST(request: Request) {
   console.log("[audio-upload] route entered");
 
   try {
+    const rateLimit = await checkUploadRateLimit(request);
+
+    if (!rateLimit.allowed) {
+      console.log("[audio-upload] upload blocked by rate limiting");
+      return NextResponse.json({ error: rateLimit.message }, { status: 429 });
+    }
+
     const formData = await request.formData();
     console.log("[audio-upload] formData parsed");
 
-    const title = String(formData.get("title") || "").trim();
-    const topic = String(formData.get("topic") || "").trim();
-    const course = String(formData.get("course") || "").trim();
+    const title = normalizeMetadataValue(formData.get("title"));
+    const topic = normalizeMetadataValue(formData.get("topic"));
+    const course = normalizeMetadataValue(formData.get("course"));
     const file = formData.get("file");
+    const turnstileToken = normalizeMetadataValue(formData.get("turnstileToken"));
+    const { env } = getRequestContext();
+    const runtimeEnv = env as CloudflareRequestEnv | undefined;
 
-    if (!title || !topic || !course) {
+    const metadataValidation = validateUploadMetadata({
+      title,
+      topic,
+      course,
+    });
+
+    if (!metadataValidation.valid) {
       console.log("[audio-upload] metadata validation failed");
       return NextResponse.json(
-        { error: "Titolo, topic e corso sono obbligatori." },
+        { error: metadataValidation.message },
         { status: 400 },
       );
     }
@@ -36,8 +66,20 @@ export async function POST(request: Request) {
       );
     }
 
+    const fileSizeValidation = validateUploadFileSize(file);
+
+    if (!fileSizeValidation.valid) {
+      console.log("[audio-upload] upload rejected because file too large", {
+        size: file.size,
+      });
+      return NextResponse.json(
+        { error: fileSizeValidation.message },
+        { status: 400 },
+      );
+    }
+
     if (!isAllowedAudioFile(file)) {
-      console.log("[audio-upload] unsupported audio format", {
+      console.log("[audio-upload] upload rejected because invalid type", {
         name: file.name,
         type: file.type,
       });
@@ -56,8 +98,31 @@ export async function POST(request: Request) {
       fileSize: file.size,
     });
 
-    const { env } = getRequestContext();
-    const runtimeEnv = env as CloudflareRequestEnv | undefined;
+    if (isTurnstileEnabled(runtimeEnv)) {
+      if (!turnstileToken) {
+        console.log("[audio-upload] Turnstile validation failed");
+        return NextResponse.json(
+          { error: "Verifica anti-bot mancante." },
+          { status: 400 },
+        );
+      }
+
+      const turnstileValid = await verifyTurnstileToken({
+        token: turnstileToken,
+        request,
+        env: runtimeEnv,
+      });
+
+      if (!turnstileValid) {
+        console.log("[audio-upload] Turnstile validation failed");
+        return NextResponse.json(
+          { error: "Verifica anti-bot non valida." },
+          { status: 400 },
+        );
+      }
+    }
+
+    await recordUploadAttempt(rateLimit.ip, rateLimit.nowIso);
 
     if (!runtimeEnv?.AUDIO_BUCKET) {
       console.error("[audio-upload] missing AUDIO_BUCKET binding");

@@ -1,6 +1,9 @@
 import { UploadForm } from "@/components/upload-form";
 
 export default function UploadPage() {
+  const turnstileEnabled = process.env.TURNSTILE_ENABLED === "true";
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";  //Da rifinire per produzione
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
@@ -15,7 +18,10 @@ export default function UploadPage() {
         </p>
       </div>
 
-      <UploadForm />
+      <UploadForm
+        turnstileEnabled={turnstileEnabled}
+        turnstileSiteKey={turnstileSiteKey}
+      />
     </div>
   );
 }

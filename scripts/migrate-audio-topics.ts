@@ -1,4 +1,4 @@
-import { backfillAudioTopicsFromLegacyColumn } from "./lib/topic-backfill";
+import { backfillAudioTopicsFromLegacyColumn } from "./lib/topic-backfill.ts";
 
 async function main() {
   await backfillAudioTopicsFromLegacyColumn();

@@ -66,6 +66,12 @@ type NormalizedAudioSearchFilters = {
   topicMode: TopicFilterMode;
 };
 
+type ResolvedTopicFilter = {
+  name: string;
+  slug: string;
+  topicIds: string[];
+};
+
 let topicSchemaPromise: Promise<void> | null = null;
 
 const TOPIC_SCHEMA_STATEMENTS = [
@@ -245,6 +251,7 @@ function normalizeSearchFilters(
 
 function buildAudioSearchWhereClause(
   normalizedFilters: NormalizedAudioSearchFilters,
+  resolvedTopicFilters: ResolvedTopicFilter[],
 ) {
   const whereClauses: string[] = [];
   const params: Array<string> = [];
@@ -273,58 +280,74 @@ function buildAudioSearchWhereClause(
   }
 
   if (normalizedFilters.selectedTopics.length > 0) {
-    if (normalizedFilters.topicMode === "and") {
-      const slugPlaceholders = normalizedFilters.selectedTopicSlugs
-        .map(() => "?")
-        .join(", ");
+    const matchedTopicIds = Array.from(
+      new Set(resolvedTopicFilters.flatMap((topicFilter) => topicFilter.topicIds)),
+    );
 
+    if (normalizedFilters.topicMode === "and") {
       if (normalizedFilters.selectedTopics.length === 1) {
-        whereClauses.push(`(
-          (
-            SELECT COUNT(DISTINCT tf.slug)
+        const singleTopicFilter = resolvedTopicFilters[0];
+        const singleTopicClauses: string[] = [];
+
+        if (singleTopicFilter && singleTopicFilter.topicIds.length > 0) {
+          const topicIdPlaceholders = singleTopicFilter.topicIds
+            .map(() => "?")
+            .join(", ");
+
+          singleTopicClauses.push(`EXISTS (
+            SELECT 1
             FROM audio_topics at_filter
-            INNER JOIN topics tf ON tf.id = at_filter.topic_id
             WHERE at_filter.audio_id = ai.id
-              AND tf.slug IN (${slugPlaceholders})
-          ) = 1
-          OR LOWER(TRIM(COALESCE(ai.topic, ''))) = ?
-        )`);
-        params.push(
-          ...normalizedFilters.selectedTopicSlugs,
-          normalizedFilters.selectedTopics[0].toLowerCase(),
-        );
+              AND at_filter.topic_id IN (${topicIdPlaceholders})
+          )`);
+          params.push(...singleTopicFilter.topicIds);
+        }
+
+        singleTopicClauses.push(`LOWER(TRIM(COALESCE(ai.topic, ''))) = ?`);
+        params.push(normalizedFilters.selectedTopics[0].toLowerCase());
+
+        whereClauses.push(`(${singleTopicClauses.join(" OR ")})`);
       } else {
-        whereClauses.push(`(
-          SELECT COUNT(DISTINCT tf.slug)
-          FROM audio_topics at_filter
-          INNER JOIN topics tf ON tf.id = at_filter.topic_id
-          WHERE at_filter.audio_id = ai.id
-            AND tf.slug IN (${slugPlaceholders})
-        ) = ${normalizedFilters.selectedTopicSlugs.length}`);
-        params.push(...normalizedFilters.selectedTopicSlugs);
+        const perTopicClauses = resolvedTopicFilters.map((topicFilter, index) => {
+          if (topicFilter.topicIds.length === 0) {
+            return "1 = 0";
+          }
+
+          const topicIdPlaceholders = topicFilter.topicIds.map(() => "?").join(", ");
+          params.push(...topicFilter.topicIds);
+
+          return `EXISTS (
+            SELECT 1
+            FROM audio_topics at_filter_${index}
+            WHERE at_filter_${index}.audio_id = ai.id
+              AND at_filter_${index}.topic_id IN (${topicIdPlaceholders})
+          )`;
+        });
+
+        whereClauses.push(`(${perTopicClauses.join(" AND ")})`);
       }
     } else {
-      const slugPlaceholders = normalizedFilters.selectedTopicSlugs
-        .map(() => "?")
-        .join(", ");
       const legacyPlaceholders = normalizedFilters.selectedTopics
         .map(() => "?")
         .join(", ");
+      const orClauses: string[] = [];
 
-      whereClauses.push(`(
-        EXISTS (
+      if (matchedTopicIds.length > 0) {
+        const topicIdPlaceholders = matchedTopicIds.map(() => "?").join(", ");
+
+        orClauses.push(`EXISTS (
           SELECT 1
           FROM audio_topics at_filter
-          INNER JOIN topics tf ON tf.id = at_filter.topic_id
           WHERE at_filter.audio_id = ai.id
-            AND tf.slug IN (${slugPlaceholders})
-        )
-        OR LOWER(TRIM(COALESCE(ai.topic, ''))) IN (${legacyPlaceholders})
-      )`);
-      params.push(
-        ...normalizedFilters.selectedTopicSlugs,
-        ...normalizedFilters.selectedTopics.map((topic) => topic.toLowerCase()),
-      );
+            AND at_filter.topic_id IN (${topicIdPlaceholders})
+        )`);
+        params.push(...matchedTopicIds);
+      }
+
+      orClauses.push(`LOWER(TRIM(COALESCE(ai.topic, ''))) IN (${legacyPlaceholders})`);
+      params.push(...normalizedFilters.selectedTopics.map((topic) => topic.toLowerCase()));
+
+      whereClauses.push(`(${orClauses.join(" OR ")})`);
     }
   }
 
@@ -333,6 +356,47 @@ function buildAudioSearchWhereClause(
       whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "",
     params,
   };
+}
+
+async function resolveTopicFilters(
+  normalizedFilters: NormalizedAudioSearchFilters,
+): Promise<ResolvedTopicFilter[]> {
+  if (normalizedFilters.selectedTopics.length === 0) {
+    return [];
+  }
+
+  const topicRows = await query<D1TopicRow>(
+    `SELECT id, name, slug
+     FROM topics
+     WHERE name IS NOT NULL AND TRIM(name) != ''`,
+  );
+
+  return normalizedFilters.selectedTopics.map((selectedTopic, index) => {
+    const selectedTopicSlug = normalizedFilters.selectedTopicSlugs[index];
+    const selectedTopicName = normalizeTextFilter(selectedTopic)?.toLowerCase() ?? "";
+    const topicIds = Array.from(
+      new Set(
+        topicRows
+          .filter((topicRow) => {
+            const normalizedTopicName =
+              normalizeTextFilter(topicRow.name)?.toLowerCase() ?? "";
+
+            return (
+              topicRow.slug === selectedTopicSlug ||
+              slugifyTopic(topicRow.name) === selectedTopicSlug ||
+              normalizedTopicName === selectedTopicName
+            );
+          })
+          .map((topicRow) => topicRow.id),
+      ),
+    );
+
+    return {
+      name: selectedTopic,
+      slug: selectedTopicSlug,
+      topicIds,
+    };
+  });
 }
 
 async function ensureTopicSchema() {
@@ -478,7 +542,11 @@ async function searchAudiosFromD1(filters: AudioSearchFilters) {
   await ensureTopicSchema();
 
   const normalizedFilters = normalizeSearchFilters(filters);
-  const { whereSql, params } = buildAudioSearchWhereClause(normalizedFilters);
+  const resolvedTopicFilters = await resolveTopicFilters(normalizedFilters);
+  const { whereSql, params } = buildAudioSearchWhereClause(
+    normalizedFilters,
+    resolvedTopicFilters,
+  );
 
   const rows = await query<D1AudioItemWithTopicRow>(
     `${AUDIO_ITEM_SELECT_WITH_TOPICS_SQL}
@@ -492,8 +560,19 @@ async function searchAudiosFromD1(filters: AudioSearchFilters) {
     count: rows.length,
     query: normalizedFilters.query,
     selectedTopics: normalizedFilters.selectedTopics,
+    selectedTopicSlugs: normalizedFilters.selectedTopicSlugs,
+    resolvedTopicIds: resolvedTopicFilters.map((topicFilter) => ({
+      name: topicFilter.name,
+      ids: topicFilter.topicIds,
+    })),
     course: normalizedFilters.course,
     topicMode: normalizedFilters.topicMode,
+    ...(whereSql
+      ? {
+          whereSql: whereSql.replace(/\s+/g, " ").trim(),
+          params,
+        }
+      : {}),
   });
 
   return groupD1AudioRows(rows);

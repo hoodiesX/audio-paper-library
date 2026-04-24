@@ -1,5 +1,5 @@
-import { query } from "../../lib/d1-client";
-import { normalizeTopics, slugifyTopic } from "../../lib/topics";
+import { query } from "../../lib/d1-client.ts";
+import { normalizeTopics, slugifyTopic } from "../../lib/topics.ts";
 
 type LegacyAudioTopicRow = {
   id: string;

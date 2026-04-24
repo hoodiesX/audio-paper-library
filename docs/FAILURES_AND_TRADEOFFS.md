@@ -42,7 +42,7 @@ Production Cloudflare paths could not safely rely on Prisma in edge runtime exec
 ### What Changed
 
 - D1 became the production data path
-- Prisma was reduced to a local fallback only
+- Prisma was reduced to legacy migration support only
 
 ### Trade-off
 

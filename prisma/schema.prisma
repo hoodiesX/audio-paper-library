@@ -10,10 +10,37 @@ datasource db {
 model AudioItem {
   id                  String   @id @default(uuid())
   title               String
+  /// Legacy mirror kept for backward compatibility while `audio_topics` is canonical.
   topic               String
   course              String
   filePath            String
   duration            Int?
   createdAt           DateTime @default(now())
   lastPositionSeconds Int      @default(0)
+  audioTopics         AudioTopic[]
+
+  @@map("AudioItem")
+}
+
+model Topic {
+  id         String      @id @default(uuid())
+  name       String
+  slug       String      @unique
+  createdAt  DateTime    @default(now()) @map("created_at")
+  audioTopics AudioTopic[]
+
+  @@map("topics")
+}
+
+model AudioTopic {
+  audioId   String   @map("audio_id")
+  topicId   String   @map("topic_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  audio     AudioItem @relation(fields: [audioId], references: [id], onDelete: Cascade)
+  topic     Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([audioId, topicId])
+  @@index([audioId])
+  @@index([topicId])
+  @@map("audio_topics")
 }

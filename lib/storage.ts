@@ -10,6 +10,7 @@ type R2BucketLike = {
     value: ArrayBuffer | Blob,
     options?: R2PutOptions,
   ) => Promise<unknown>;
+  delete: (key: string) => Promise<unknown>;
 };
 
 export type StorageEnv = {
@@ -66,6 +67,18 @@ export function getAudioUrl(
   const normalizedKey = key.replace(/^\/+/, "");
 
   return `${baseUrl}/${normalizedKey}`;
+}
+
+export async function deleteAudioObject(key: string, env: StorageEnv) {
+  if (!env?.AUDIO_BUCKET) {
+    throw new Error(
+      "R2 bucket binding is not configured. Add an AUDIO_BUCKET binding in Cloudflare Pages.",
+    );
+  }
+
+  const normalizedKey = key.replace(/^\/+/, "");
+
+  await env.AUDIO_BUCKET.delete(normalizedKey);
 }
 
 export function getStorageKeyFromFilePath(filePath: string): string {

@@ -18,7 +18,7 @@ This repository is intentionally small, but it is no longer a purely local MVP. 
 - Store metadata and listening progress in D1
 - Browse the library from a homepage
 - Open item detail pages with playback and resume support
-- Filter items by topic and course using shareable URL parameters
+- Search by free text, multiple topics, and course using shareable URL parameters
 - Run an admin-only local delete workflow that removes both R2 objects and D1 metadata
 
 ## Tech Stack
@@ -38,7 +38,7 @@ This repository is intentionally small, but it is no longer a purely local MVP. 
 app/                 App Router pages and API routes
 components/          UI components
 lib/                 Runtime helpers, repository layer, storage, D1 client
-prisma/              Local development schema and SQLite support
+prisma/              Legacy Prisma schema kept for SQLite-to-D1 migration support
 scripts/             Local admin and migration scripts
 docs/                Architecture and operational documentation
 ```
@@ -56,7 +56,7 @@ npm install
 npm run dev
 ```
 
-Local development can still use the original Prisma + SQLite fallback where that is helpful, but the production architecture is D1 + R2.
+The application runtime uses D1 + R2. Prisma is retained only for the legacy SQLite-to-D1 migration workflow.
 
 ## Production Deployment
 

@@ -50,7 +50,7 @@ Prisma worked during the local phase, but it caused production friction in edge 
 The fix was not to force Prisma to remain central. The fix was to make production use the system that actually matches the platform:
 
 - D1 in production
-- Prisma only as a local fallback
+- Prisma only for legacy migration support
 
 The lesson was that portability matters less than correctness in the actual runtime that serves users.
 

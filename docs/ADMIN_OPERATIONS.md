@@ -32,7 +32,7 @@ It performs the following steps:
 2. Print a deletion summary:
    - id
    - title
-   - topic
+   - topics
    - course
    - file path
    - derived storage key

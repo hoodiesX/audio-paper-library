@@ -66,7 +66,7 @@ D1 stores:
 
 - audio item metadata
 - playback progress
-- filterable fields such as `topic` and `course`
+- filterable fields such as `topics`, `course`, and title keywords
 - lightweight operational data such as upload-attempt records
 
 D1 is used because the application needs structured querying, filtering, and updates, but not a large relational domain model.
@@ -100,7 +100,7 @@ This keeps destructive operations out of the public runtime and matches the sing
 The separation between R2 and D1 is not accidental. It solves three concrete problems:
 
 1. Audio files need object storage semantics, not relational storage semantics.
-2. Metadata must be queryable by item id, topic, course, and progress state.
+2. Metadata must be queryable by item id, topics, course, text search, and progress state.
 3. Mobile playback needs a normal HTTP URL, not a filesystem path or application-specific binary access layer.
 
 This split is what made the project viable on Cloudflare Pages.

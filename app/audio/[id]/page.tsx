@@ -47,15 +47,24 @@ export default async function AudioDetailPage({
           filePath={item.filePath}
           initialPosition={item.lastPositionSeconds}
           title={item.title}
-          topic={item.topic}
+          topics={item.topics}
           course={item.course}
         />
       </section>
 
       <section className="grid gap-4 rounded-xl2 border border-line bg-panel p-6 shadow-soft md:grid-cols-2">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-muted">Topic</p>
-          <p className="mt-2 text-sm text-ink">{item.topic}</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-muted">Topic / tag</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {item.topics.map((topic) => (
+              <span
+                key={topic}
+                className="rounded-full border border-line bg-canvas px-3 py-1 text-xs font-medium text-muted"
+              >
+                {topic}
+              </span>
+            ))}
+          </div>
         </div>
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-muted">Corso</p>

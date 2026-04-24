@@ -9,7 +9,7 @@ This document explains how data moves through the system in the main user and ad
 - user opens `/upload`
 - user provides:
   - `title`
-  - `topic`
+  - `topics`
   - `course`
   - audio file
 
@@ -55,8 +55,10 @@ This document explains how data moves through the system in the main user and ad
 
 - user opens `/`
 - optional query parameters:
-  - `topic`
+  - `query`
+  - `topics`
   - `course`
+  - `topicMode`
 
 ### Processing
 
@@ -126,13 +128,13 @@ This document explains how data moves through the system in the main user and ad
 
 ### Input
 
-- user selects `topic`, `course`, or both on the homepage
+- user combines `query`, `topics`, `course`, or all three on the homepage
 
 ### Processing
 
 1. The filter form submits via query string.
 2. The homepage re-renders on the server.
-3. The repository builds a single query with optional filter clauses.
+3. The repository builds a single query with optional clauses for text search, topics, topic match mode, and course.
 4. Matching rows are returned from D1.
 
 ### Output

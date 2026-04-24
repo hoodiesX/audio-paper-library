@@ -15,7 +15,7 @@ type AudioPlayerProps = {
   filePath: string;
   initialPosition: number;
   title: string;
-  topic: string;
+  topics: string[];
   course: string;
 };
 
@@ -24,7 +24,7 @@ export function AudioPlayer({
   filePath,
   initialPosition,
   title,
-  topic,
+  topics,
   course,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -224,9 +224,14 @@ export function AudioPlayer({
       <div className="relative space-y-6">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-xs font-medium text-muted shadow-sm">
-              {topic}
-            </span>
+            {topics.map((topic) => (
+              <span
+                key={topic}
+                className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-xs font-medium text-muted shadow-sm"
+              >
+                {topic}
+              </span>
+            ))}
             <span className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-xs font-medium text-muted shadow-sm">
               {course}
             </span>

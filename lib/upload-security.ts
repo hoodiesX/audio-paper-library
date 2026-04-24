@@ -1,8 +1,12 @@
 import { query } from "@/lib/d1-client";
+import {
+  MAX_TOPICS_PER_AUDIO,
+  TOPIC_MAX_LENGTH,
+  normalizeTopics,
+} from "@/lib/topics";
 
 const MAX_AUDIO_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const TITLE_MAX_LENGTH = 120;
-const TOPIC_MAX_LENGTH = 60;
 const COURSE_MAX_LENGTH = 80;
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -29,13 +33,15 @@ export function normalizeMetadataValue(value: FormDataEntryValue | null) {
 
 export function validateUploadMetadata(input: {
   title: string;
-  topic: string;
+  topics: string[];
   course: string;
 }) {
-  if (!input.title || !input.topic || !input.course) {
+  const topics = normalizeTopics(input.topics);
+
+  if (!input.title || topics.length === 0 || !input.course) {
     return {
       valid: false as const,
-      message: "Titolo, topic e corso sono obbligatori.",
+      message: "Titolo, almeno un topic e corso sono obbligatori.",
     };
   }
 
@@ -46,10 +52,19 @@ export function validateUploadMetadata(input: {
     };
   }
 
-  if (input.topic.length > TOPIC_MAX_LENGTH) {
+  if (topics.length > MAX_TOPICS_PER_AUDIO) {
     return {
       valid: false as const,
-      message: `Il topic non puo superare ${TOPIC_MAX_LENGTH} caratteri.`,
+      message: `Puoi associare al massimo ${MAX_TOPICS_PER_AUDIO} topic per audio.`,
+    };
+  }
+
+  const tooLongTopic = topics.find((topic) => topic.length > TOPIC_MAX_LENGTH);
+
+  if (tooLongTopic) {
+    return {
+      valid: false as const,
+      message: `Ogni topic non puo superare ${TOPIC_MAX_LENGTH} caratteri.`,
     };
   }
 

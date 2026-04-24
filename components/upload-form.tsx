@@ -3,6 +3,7 @@
 import Script from "next/script";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { TOPICS_INPUT_MAX_LENGTH, normalizeTopics } from "@/lib/topics";
 
 declare global {
   interface Window {
@@ -23,6 +24,9 @@ export function UploadForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [topicsInput, setTopicsInput] = useState("");
+
+  const topicPreview = normalizeTopics(topicsInput);
 
   useEffect(() => {
     if (!turnstileEnabled) {
@@ -101,18 +105,36 @@ export function UploadForm({
 
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-ink" htmlFor="topic">
-              Topic
+            <label className="text-sm font-medium text-ink" htmlFor="topics">
+              Topic / tag
             </label>
             <input
-              id="topic"
-              name="topic"
+              id="topics"
+              name="topics"
               required
-              maxLength={60}
+              maxLength={TOPICS_INPUT_MAX_LENGTH}
+              value={topicsInput}
+              onChange={(event) => setTopicsInput(event.target.value)}
               className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
-              placeholder="AI, neuroscience, econometrics"
+              placeholder="AI, calcolo parallelo, cybersecurity"
               type="text"
             />
+            <p className="text-xs text-muted">
+              Separa i topic con una virgola. Verranno normalizzati e i duplicati
+              saranno rimossi.
+            </p>
+            {topicPreview.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {topicPreview.map((topic) => (
+                  <span
+                    key={topic}
+                    className="rounded-full border border-line bg-canvas px-3 py-1 text-xs font-medium text-muted"
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-2">

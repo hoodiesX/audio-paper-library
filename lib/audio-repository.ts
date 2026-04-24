@@ -58,7 +58,72 @@ type D1ValueRow = {
   value: string;
 };
 
+type NormalizedAudioSearchFilters = {
+  query?: string;
+  course?: string;
+  selectedTopics: string[];
+  selectedTopicSlugs: string[];
+  topicMode: TopicFilterMode;
+};
+
 let topicSchemaPromise: Promise<void> | null = null;
+
+const TOPIC_SCHEMA_STATEMENTS = [
+  `
+    CREATE TABLE IF NOT EXISTS topics (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS audio_topics (
+      audio_id TEXT NOT NULL,
+      topic_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (audio_id, topic_id),
+      FOREIGN KEY (audio_id) REFERENCES AudioItem(id) ON DELETE CASCADE,
+      FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_audio_item_course
+    ON AudioItem(course)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_audio_item_title
+    ON AudioItem(title)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_topics_name
+    ON topics(name)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_audio_topics_audio_id
+    ON audio_topics(audio_id)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_audio_topics_topic_id
+    ON audio_topics(topic_id)
+  `,
+] as const;
+
+const AUDIO_ITEM_SELECT_WITH_TOPICS_SQL = `
+  SELECT
+    ai.id,
+    ai.title,
+    ai.topic AS legacyTopic,
+    ai.course,
+    ai.filePath,
+    ai.duration,
+    ai.createdAt,
+    ai.lastPositionSeconds,
+    t.name AS topicName
+  FROM AudioItem ai
+  LEFT JOIN audio_topics at ON at.audio_id = ai.id
+  LEFT JOIN topics t ON t.id = at.topic_id
+`;
 
 function normalizeTextFilter(value?: string) {
   const trimmed = value?.trim().replace(/\s+/g, " ");
@@ -162,49 +227,120 @@ function getNormalizedSelectedTopics(filters: AudioSearchFilters) {
   ]);
 }
 
+function normalizeSearchFilters(
+  filters: AudioSearchFilters,
+): NormalizedAudioSearchFilters {
+  const query = normalizeTextFilter(filters.query);
+  const course = normalizeTextFilter(filters.course);
+  const selectedTopics = getNormalizedSelectedTopics(filters);
+
+  return {
+    query,
+    course,
+    selectedTopics,
+    selectedTopicSlugs: selectedTopics.map(slugifyTopic),
+    topicMode: normalizeTopicMode(filters.topicMode),
+  };
+}
+
+function buildAudioSearchWhereClause(
+  normalizedFilters: NormalizedAudioSearchFilters,
+) {
+  const whereClauses: string[] = [];
+  const params: Array<string> = [];
+
+  if (normalizedFilters.query) {
+    const queryMatch = `%${normalizedFilters.query.toLowerCase()}%`;
+
+    whereClauses.push(`(
+      LOWER(ai.title) LIKE ?
+      OR LOWER(ai.course) LIKE ?
+      OR LOWER(COALESCE(ai.topic, '')) LIKE ?
+      OR EXISTS (
+        SELECT 1
+        FROM audio_topics at_query
+        INNER JOIN topics tq ON tq.id = at_query.topic_id
+        WHERE at_query.audio_id = ai.id
+          AND LOWER(tq.name) LIKE ?
+      )
+    )`);
+    params.push(queryMatch, queryMatch, queryMatch, queryMatch);
+  }
+
+  if (normalizedFilters.course) {
+    whereClauses.push(`LOWER(ai.course) = ?`);
+    params.push(normalizedFilters.course.toLowerCase());
+  }
+
+  if (normalizedFilters.selectedTopics.length > 0) {
+    if (normalizedFilters.topicMode === "and") {
+      const slugPlaceholders = normalizedFilters.selectedTopicSlugs
+        .map(() => "?")
+        .join(", ");
+
+      if (normalizedFilters.selectedTopics.length === 1) {
+        whereClauses.push(`(
+          (
+            SELECT COUNT(DISTINCT tf.slug)
+            FROM audio_topics at_filter
+            INNER JOIN topics tf ON tf.id = at_filter.topic_id
+            WHERE at_filter.audio_id = ai.id
+              AND tf.slug IN (${slugPlaceholders})
+          ) = 1
+          OR LOWER(TRIM(COALESCE(ai.topic, ''))) = ?
+        )`);
+        params.push(
+          ...normalizedFilters.selectedTopicSlugs,
+          normalizedFilters.selectedTopics[0].toLowerCase(),
+        );
+      } else {
+        whereClauses.push(`(
+          SELECT COUNT(DISTINCT tf.slug)
+          FROM audio_topics at_filter
+          INNER JOIN topics tf ON tf.id = at_filter.topic_id
+          WHERE at_filter.audio_id = ai.id
+            AND tf.slug IN (${slugPlaceholders})
+        ) = ${normalizedFilters.selectedTopicSlugs.length}`);
+        params.push(...normalizedFilters.selectedTopicSlugs);
+      }
+    } else {
+      const slugPlaceholders = normalizedFilters.selectedTopicSlugs
+        .map(() => "?")
+        .join(", ");
+      const legacyPlaceholders = normalizedFilters.selectedTopics
+        .map(() => "?")
+        .join(", ");
+
+      whereClauses.push(`(
+        EXISTS (
+          SELECT 1
+          FROM audio_topics at_filter
+          INNER JOIN topics tf ON tf.id = at_filter.topic_id
+          WHERE at_filter.audio_id = ai.id
+            AND tf.slug IN (${slugPlaceholders})
+        )
+        OR LOWER(TRIM(COALESCE(ai.topic, ''))) IN (${legacyPlaceholders})
+      )`);
+      params.push(
+        ...normalizedFilters.selectedTopicSlugs,
+        ...normalizedFilters.selectedTopics.map((topic) => topic.toLowerCase()),
+      );
+    }
+  }
+
+  return {
+    whereSql:
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
 async function ensureTopicSchema() {
   if (!topicSchemaPromise) {
     topicSchemaPromise = (async () => {
-      await query(`
-        CREATE TABLE IF NOT EXISTS topics (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE,
-          created_at TEXT NOT NULL
-        )
-      `);
-
-      await query(`
-        CREATE TABLE IF NOT EXISTS audio_topics (
-          audio_id TEXT NOT NULL,
-          topic_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          PRIMARY KEY (audio_id, topic_id),
-          FOREIGN KEY (audio_id) REFERENCES AudioItem(id) ON DELETE CASCADE,
-          FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
-        )
-      `);
-
-      await query(`
-        CREATE INDEX IF NOT EXISTS idx_audio_item_course
-        ON AudioItem(course)
-      `);
-      await query(`
-        CREATE INDEX IF NOT EXISTS idx_audio_item_title
-        ON AudioItem(title)
-      `);
-      await query(`
-        CREATE INDEX IF NOT EXISTS idx_topics_name
-        ON topics(name)
-      `);
-      await query(`
-        CREATE INDEX IF NOT EXISTS idx_audio_topics_audio_id
-        ON audio_topics(audio_id)
-      `);
-      await query(`
-        CREATE INDEX IF NOT EXISTS idx_audio_topics_topic_id
-        ON audio_topics(topic_id)
-      `);
+      for (const statement of TOPIC_SCHEMA_STATEMENTS) {
+        await query(statement);
+      }
     })().catch((error) => {
       topicSchemaPromise = null;
       throw error;
@@ -306,104 +442,46 @@ async function removeTopicsForD1AudioItem(audioId: string) {
   await query(`DELETE FROM audio_topics WHERE audio_id = ?`, [audioId]);
 }
 
+async function insertAudioItemRow(item: AudioItemRecord, createdAtIso: string) {
+  await query(
+    `INSERT INTO AudioItem (
+      id,
+      title,
+      topic,
+      course,
+      filePath,
+      duration,
+      createdAt,
+      lastPositionSeconds
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      item.id,
+      item.title,
+      item.topic,
+      item.course,
+      item.filePath,
+      item.duration,
+      createdAtIso,
+      item.lastPositionSeconds,
+    ],
+  );
+}
+
+async function rollbackCreatedAudioItem(audioId: string) {
+  await removeTopicsForD1AudioItem(audioId).catch(() => undefined);
+  await query(`DELETE FROM AudioItem WHERE id = ?`, [audioId]).catch(
+    () => undefined,
+  );
+}
+
 async function searchAudiosFromD1(filters: AudioSearchFilters) {
   await ensureTopicSchema();
 
-  const normalizedQuery = normalizeTextFilter(filters.query);
-  const normalizedCourse = normalizeTextFilter(filters.course);
-  const selectedTopics = getNormalizedSelectedTopics(filters);
-  const selectedTopicSlugs = selectedTopics.map(slugifyTopic);
-  const topicMode = normalizeTopicMode(filters.topicMode);
-  const whereClauses: string[] = [];
-  const params: Array<string> = [];
-
-  if (normalizedQuery) {
-    const queryMatch = `%${normalizedQuery.toLowerCase()}%`;
-
-    whereClauses.push(`(
-      LOWER(ai.title) LIKE ?
-      OR LOWER(ai.course) LIKE ?
-      OR LOWER(COALESCE(ai.topic, '')) LIKE ?
-      OR EXISTS (
-        SELECT 1
-        FROM audio_topics at_query
-        INNER JOIN topics tq ON tq.id = at_query.topic_id
-        WHERE at_query.audio_id = ai.id
-          AND LOWER(tq.name) LIKE ?
-      )
-    )`);
-    params.push(queryMatch, queryMatch, queryMatch, queryMatch);
-  }
-
-  if (normalizedCourse) {
-    whereClauses.push(`LOWER(ai.course) = ?`);
-    params.push(normalizedCourse.toLowerCase());
-  }
-
-  if (selectedTopics.length > 0) {
-    if (topicMode === "and") {
-      const slugPlaceholders = selectedTopicSlugs.map(() => "?").join(", ");
-
-      if (selectedTopics.length === 1) {
-        whereClauses.push(`(
-          (
-            SELECT COUNT(DISTINCT tf.slug)
-            FROM audio_topics at_filter
-            INNER JOIN topics tf ON tf.id = at_filter.topic_id
-            WHERE at_filter.audio_id = ai.id
-              AND tf.slug IN (${slugPlaceholders})
-          ) = 1
-          OR LOWER(TRIM(COALESCE(ai.topic, ''))) = ?
-        )`);
-        params.push(...selectedTopicSlugs, selectedTopics[0].toLowerCase());
-      } else {
-        whereClauses.push(`(
-          SELECT COUNT(DISTINCT tf.slug)
-          FROM audio_topics at_filter
-          INNER JOIN topics tf ON tf.id = at_filter.topic_id
-          WHERE at_filter.audio_id = ai.id
-            AND tf.slug IN (${slugPlaceholders})
-        ) = ${selectedTopicSlugs.length}`);
-        params.push(...selectedTopicSlugs);
-      }
-    } else {
-      const slugPlaceholders = selectedTopicSlugs.map(() => "?").join(", ");
-      const legacyPlaceholders = selectedTopics.map(() => "?").join(", ");
-
-      whereClauses.push(`(
-        EXISTS (
-          SELECT 1
-          FROM audio_topics at_filter
-          INNER JOIN topics tf ON tf.id = at_filter.topic_id
-          WHERE at_filter.audio_id = ai.id
-            AND tf.slug IN (${slugPlaceholders})
-        )
-        OR LOWER(TRIM(COALESCE(ai.topic, ''))) IN (${legacyPlaceholders})
-      )`);
-      params.push(
-        ...selectedTopicSlugs,
-        ...selectedTopics.map((topic) => topic.toLowerCase()),
-      );
-    }
-  }
-
-  const whereSql =
-    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+  const normalizedFilters = normalizeSearchFilters(filters);
+  const { whereSql, params } = buildAudioSearchWhereClause(normalizedFilters);
 
   const rows = await query<D1AudioItemWithTopicRow>(
-    `SELECT
-       ai.id,
-       ai.title,
-       ai.topic AS legacyTopic,
-       ai.course,
-       ai.filePath,
-       ai.duration,
-       ai.createdAt,
-       ai.lastPositionSeconds,
-       t.name AS topicName
-     FROM AudioItem ai
-     LEFT JOIN audio_topics at ON at.audio_id = ai.id
-     LEFT JOIN topics t ON t.id = at.topic_id
+    `${AUDIO_ITEM_SELECT_WITH_TOPICS_SQL}
      ${whereSql}
      ORDER BY ai.createdAt DESC, t.name COLLATE NOCASE ASC`,
     params,
@@ -412,10 +490,10 @@ async function searchAudiosFromD1(filters: AudioSearchFilters) {
   console.log("[audio-repository] audio item read", {
     source: "D1",
     count: rows.length,
-    query: normalizedQuery,
-    selectedTopics,
-    course: normalizedCourse,
-    topicMode,
+    query: normalizedFilters.query,
+    selectedTopics: normalizedFilters.selectedTopics,
+    course: normalizedFilters.course,
+    topicMode: normalizedFilters.topicMode,
   });
 
   return groupD1AudioRows(rows);
@@ -479,19 +557,7 @@ export async function getAudioItemById(id: string) {
   await ensureTopicSchema();
 
   const rows = await query<D1AudioItemWithTopicRow>(
-    `SELECT
-       ai.id,
-       ai.title,
-       ai.topic AS legacyTopic,
-       ai.course,
-       ai.filePath,
-       ai.duration,
-       ai.createdAt,
-       ai.lastPositionSeconds,
-       t.name AS topicName
-     FROM AudioItem ai
-     LEFT JOIN audio_topics at ON at.audio_id = ai.id
-     LEFT JOIN topics t ON t.id = at.topic_id
+    `${AUDIO_ITEM_SELECT_WITH_TOPICS_SQL}
      WHERE ai.id = ?
      ORDER BY t.name COLLATE NOCASE ASC`,
     [id],
@@ -533,35 +599,10 @@ export async function createAudioItem(data: CreateAudioItemInput) {
   const createdAtIso = item.createdAt.toISOString();
 
   try {
-    await query(
-      `INSERT INTO AudioItem (
-        id,
-        title,
-        topic,
-        course,
-        filePath,
-        duration,
-        createdAt,
-        lastPositionSeconds
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        item.id,
-        item.title,
-        item.topic,
-        item.course,
-        item.filePath,
-        item.duration,
-        createdAtIso,
-        item.lastPositionSeconds,
-      ],
-    );
-
+    await insertAudioItemRow(item, createdAtIso);
     await attachTopicsToD1AudioItem(item.id, item.topics, createdAtIso);
   } catch (error) {
-    await removeTopicsForD1AudioItem(item.id).catch(() => undefined);
-    await query(`DELETE FROM AudioItem WHERE id = ?`, [item.id]).catch(
-      () => undefined,
-    );
+    await rollbackCreatedAudioItem(item.id);
     throw error;
   }
 

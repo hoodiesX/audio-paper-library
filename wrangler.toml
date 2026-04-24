@@ -1,0 +1,7 @@
+compatibility_date = "2026-04-24"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "audio-paper-library"
+database_id = "c2d01700-7de4-41cd-a7a8-67b3bec348cb" 

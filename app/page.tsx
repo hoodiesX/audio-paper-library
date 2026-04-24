@@ -18,6 +18,20 @@ type HomePageProps = {
   };
 };
 
+type HomeSearchState = {
+  selectedQuery?: string;
+  selectedCourse?: string;
+  selectedTopics: string[];
+  topicMode: TopicFilterMode;
+  hasActiveFilters: boolean;
+};
+
+type ActiveFilterLink = {
+  key: string;
+  label: string;
+  href: string;
+};
+
 function normalizeQueryParam(value?: string | string[]) {
   const rawValue = Array.isArray(value) ? value[0] : value;
   const trimmedValue = rawValue?.trim().replace(/\s+/g, " ");
@@ -66,7 +80,9 @@ function buildFilterHref(input: {
   return queryString ? `/?${queryString}` : "/";
 }
 
-export default async function HomePage({ searchParams }: HomePageProps) {
+function parseHomeSearchState(
+  searchParams?: HomePageProps["searchParams"],
+): HomeSearchState {
   const selectedQuery = normalizeQueryParam(searchParams?.query);
   const selectedCourse = normalizeQueryParam(searchParams?.course);
   const selectedTopics = normalizeTopics([
@@ -74,6 +90,72 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     ...getMultiValueQueryParam(searchParams?.topic),
   ]);
   const topicMode = normalizeTopicMode(searchParams?.topicMode);
+
+  return {
+    selectedQuery,
+    selectedCourse,
+    selectedTopics,
+    topicMode,
+    hasActiveFilters: Boolean(
+      selectedQuery || selectedCourse || selectedTopics.length > 0,
+    ),
+  };
+}
+
+function getActiveFilterLinks(state: HomeSearchState): ActiveFilterLink[] {
+  const links: ActiveFilterLink[] = [];
+
+  if (state.selectedQuery) {
+    links.push({
+      key: "query",
+      label: `Query: ${state.selectedQuery} ×`,
+      href: buildFilterHref({
+        course: state.selectedCourse,
+        topics: state.selectedTopics,
+        topicMode: state.topicMode,
+      }),
+    });
+  }
+
+  if (state.selectedCourse) {
+    links.push({
+      key: "course",
+      label: `Corso: ${state.selectedCourse} ×`,
+      href: buildFilterHref({
+        query: state.selectedQuery,
+        topics: state.selectedTopics,
+        topicMode: state.topicMode,
+      }),
+    });
+  }
+
+  for (const topic of state.selectedTopics) {
+    links.push({
+      key: `topic-${topic}`,
+      label: `Topic: ${topic} ×`,
+      href: buildFilterHref({
+        query: state.selectedQuery,
+        course: state.selectedCourse,
+        topics: state.selectedTopics.filter(
+          (selectedTopic) => selectedTopic !== topic,
+        ),
+        topicMode: state.topicMode,
+      }),
+    });
+  }
+
+  return links;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const searchState = parseHomeSearchState(searchParams);
+  const {
+    selectedQuery,
+    selectedCourse,
+    selectedTopics,
+    topicMode,
+    hasActiveFilters,
+  } = searchState;
 
   const [items, filterOptions] = await Promise.all([
     searchAudios({
@@ -85,9 +167,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     getAudioFilterOptions(),
   ]);
 
-  const hasActiveFilters = Boolean(
-    selectedQuery || selectedCourse || selectedTopics.length > 0,
-  );
+  const activeFilterLinks = getActiveFilterLinks(searchState);
   const resultsLabel = `${items.length} ${items.length === 1 ? "elemento" : "elementi"}`;
 
   return (
@@ -237,46 +317,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           {hasActiveFilters ? (
             <div className="flex flex-wrap gap-2">
-              {selectedQuery ? (
+              {activeFilterLinks.map((link) => (
                 <Link
-                  href={buildFilterHref({
-                    course: selectedCourse,
-                    topics: selectedTopics,
-                    topicMode,
-                  })}
+                  key={link.key}
+                  href={link.href}
                   className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
                 >
-                  Query: {selectedQuery} ×
-                </Link>
-              ) : null}
-
-              {selectedCourse ? (
-                <Link
-                  href={buildFilterHref({
-                    query: selectedQuery,
-                    topics: selectedTopics,
-                    topicMode,
-                  })}
-                  className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
-                >
-                  Corso: {selectedCourse} ×
-                </Link>
-              ) : null}
-
-              {selectedTopics.map((topic) => (
-                <Link
-                  key={topic}
-                  href={buildFilterHref({
-                    query: selectedQuery,
-                    course: selectedCourse,
-                    topics: selectedTopics.filter(
-                      (selectedTopic) => selectedTopic !== topic,
-                    ),
-                    topicMode,
-                  })}
-                  className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
-                >
-                  Topic: {topic} ×
+                  {link.label}
                 </Link>
               ))}
             </div>

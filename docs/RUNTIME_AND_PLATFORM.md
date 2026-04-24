@@ -62,7 +62,7 @@ The core issue was not that Prisma is “bad”; it was that the production envi
 The current rule is:
 
 - production Cloudflare paths use D1
-- Prisma is kept only as a local fallback where necessary
+- Prisma is kept only for legacy SQLite-to-D1 migration scripts
 
 This is an example of platform compatibility driving architectural simplification.
 

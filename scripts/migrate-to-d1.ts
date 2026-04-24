@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { query } from "../lib/d1-client";
+import { backfillAudioTopicsFromLegacyColumn } from "./lib/topic-backfill";
 
 const prisma = new PrismaClient();
 const BATCH_LOG_EVERY = 25;
@@ -67,6 +68,7 @@ async function migrateAudioItems() {
 async function main() {
   await ensureSchema();
   await migrateAudioItems();
+  await backfillAudioTopicsFromLegacyColumn();
 }
 
 main()

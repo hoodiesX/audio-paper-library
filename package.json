@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate && prisma db push",
+    "prisma:generate": "prisma generate",
+    "d1:migrate": "node --experimental-strip-types ./scripts/migrate-to-d1.ts",
+    "d1:migrate:topics": "node --experimental-strip-types ./scripts/migrate-audio-topics.ts",
     "pages:build": "next build && next-on-pages"
   },
   "dependencies": {

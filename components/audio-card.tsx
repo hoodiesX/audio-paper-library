@@ -4,7 +4,7 @@ type AudioCardProps = {
   item: {
     id: string;
     title: string;
-    topic: string;
+    topics: string[];
     course: string;
     createdAt: Date;
     lastPositionSeconds: number;
@@ -28,7 +28,16 @@ export function AudioCard({ item }: AudioCardProps) {
           </p>
           <div>
             <h2 className="text-lg font-semibold text-ink">{item.title}</h2>
-            <p className="mt-1 text-sm text-muted">{item.topic}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.topics.map((topic) => (
+                <span
+                  key={topic}
+                  className="rounded-full border border-line bg-canvas px-3 py-1 text-xs font-medium text-muted"
+                >
+                  {topic}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
         <span className="rounded-full bg-canvas px-3 py-1 text-xs font-medium text-muted">

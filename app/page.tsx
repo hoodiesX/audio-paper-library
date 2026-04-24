@@ -1,33 +1,94 @@
 export const runtime = "edge";
 import Link from "next/link";
 import { AudioCard } from "@/components/audio-card";
-import { getAudioFilterOptions, getAudioItems } from "@/lib/audio-repository";
+import {
+  TopicFilterMode,
+  getAudioFilterOptions,
+  searchAudios,
+} from "@/lib/audio-repository";
+import { normalizeTopics } from "@/lib/topics";
 
 type HomePageProps = {
   searchParams?: {
-    topic?: string;
-    course?: string;
+    query?: string | string[];
+    topic?: string | string[];
+    topics?: string | string[];
+    course?: string | string[];
+    topicMode?: string | string[];
   };
 };
 
 function normalizeQueryParam(value?: string | string[]) {
-  const raw = Array.isArray(value) ? value[0] : value;
-  const trimmed = raw?.trim();
-  return trimmed ? trimmed : undefined;
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const trimmedValue = rawValue?.trim().replace(/\s+/g, " ");
+  return trimmedValue ? trimmedValue : undefined;
 }
+
+function getMultiValueQueryParam(value?: string | string[]) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return value ? [value] : [];
+}
+
+function normalizeTopicMode(value?: string | string[]): TopicFilterMode {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  return rawValue === "and" ? "and" : "or";
+}
+
+function buildFilterHref(input: {
+  query?: string;
+  course?: string;
+  topics?: string[];
+  topicMode?: TopicFilterMode;
+}) {
+  const params = new URLSearchParams();
+
+  if (input.query) {
+    params.set("query", input.query);
+  }
+
+  if (input.course) {
+    params.set("course", input.course);
+  }
+
+  for (const topic of input.topics ?? []) {
+    params.append("topics", topic);
+  }
+
+  if ((input.topics?.length ?? 0) > 1 && input.topicMode === "and") {
+    params.set("topicMode", "and");
+  }
+
+  const queryString = params.toString();
+
+  return queryString ? `/?${queryString}` : "/";
+}
+
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const selectedTopic = normalizeQueryParam(searchParams?.topic);
+  const selectedQuery = normalizeQueryParam(searchParams?.query);
   const selectedCourse = normalizeQueryParam(searchParams?.course);
+  const selectedTopics = normalizeTopics([
+    ...getMultiValueQueryParam(searchParams?.topics),
+    ...getMultiValueQueryParam(searchParams?.topic),
+  ]);
+  const topicMode = normalizeTopicMode(searchParams?.topicMode);
 
   const [items, filterOptions] = await Promise.all([
-    getAudioItems({
-      topic: selectedTopic,
+    searchAudios({
+      query: selectedQuery,
+      topics: selectedTopics,
       course: selectedCourse,
+      topicMode,
     }),
     getAudioFilterOptions(),
   ]);
 
-  const hasActiveFilters = Boolean(selectedTopic || selectedCourse);
+  const hasActiveFilters = Boolean(
+    selectedQuery || selectedCourse || selectedTopics.length > 0,
+  );
+  const resultsLabel = `${items.length} ${items.length === 1 ? "elemento" : "elementi"}`;
 
   return (
     <div className="space-y-8">
@@ -36,11 +97,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           Personal audio library
         </p>
         <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-ink">
-          Organizza podcast e sintesi paper in una libreria semplice e veloce.
+          Organizza podcast, sintesi paper e lezioni in una libreria semplice e veloce.
         </h1>
         <p className="mt-4 max-w-2xl text-base text-muted">
-          Carica file audio, salva metadata essenziali e riprendi l&apos;ascolto
-          dal punto giusto.
+          Cerca per testo libero, combina topic multipli e filtra per corso con
+          URL condivisibili.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -53,82 +114,179 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <section className="space-y-4">
-        <div className="flex flex-col gap-4 rounded-xl2 border border-line bg-panel p-5 shadow-soft md:flex-row md:items-end md:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-ink">
-              Libreria audio
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Filtra per topic o corso per ritrovare piu velocemente i contenuti.
-            </p>
+        <div className="rounded-xl2 border border-line bg-panel p-5 shadow-soft">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-ink">
+                Libreria audio
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Combina ricerca testuale, topic multipli e corso senza perdere i
+                filtri al refresh.
+              </p>
+            </div>
+            {selectedTopics.length > 1 ? (
+              <p className="text-sm text-muted">
+                Match topic: {topicMode === "and" ? "AND" : "OR"}
+              </p>
+            ) : null}
           </div>
 
-          <form className="flex flex-col gap-3 md:flex-row md:items-end">
-            <label className="flex flex-col gap-2 text-sm font-medium text-ink">
-              <span>Topic</span>
-              <select
-                name="topic"
-                defaultValue={selectedTopic ?? ""}
-                className="min-w-[180px] rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
-              >
-                <option value="">Tutti i topic</option>
-                {filterOptions.topics.map((topic) => (
-                  <option key={topic} value={topic}>
-                    {topic}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <form className="mt-5 space-y-5">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(220px,0.8fr)_180px]">
+              <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+                <span>Ricerca testuale</span>
+                <input
+                  type="search"
+                  name="query"
+                  defaultValue={selectedQuery ?? ""}
+                  placeholder="Es. transformer, paper, zero trust"
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
+                />
+              </label>
 
-            <label className="flex flex-col gap-2 text-sm font-medium text-ink">
-              <span>Corso</span>
-              <select
-                name="course"
-                defaultValue={selectedCourse ?? ""}
-                className="min-w-[180px] rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
-              >
-                <option value="">Tutti i corsi</option>
-                {filterOptions.courses.map((course) => (
-                  <option key={course} value={course}>
-                    {course}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+                <span>Corso</span>
+                <select
+                  name="course"
+                  defaultValue={selectedCourse ?? ""}
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
+                >
+                  <option value="">Tutti i corsi</option>
+                  {filterOptions.courses.map((course) => (
+                    <option key={course} value={course}>
+                      {course}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <button
-              type="submit"
-              className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:opacity-90"
-            >
-              Applica
-            </button>
+              <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+                <span>Match topic</span>
+                <select
+                  name="topicMode"
+                  defaultValue={topicMode}
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-ink/20 focus:ring-2 focus:ring-ink/5"
+                >
+                  <option value="or">Almeno uno (OR)</option>
+                  <option value="and">Tutti i selezionati (AND)</option>
+                </select>
+              </label>
+            </div>
 
-            {hasActiveFilters ? (
-              <Link
-                href="/"
-                className="rounded-full border border-line px-5 py-3 text-sm font-medium text-muted transition hover:border-ink/10 hover:text-ink"
+            <div className="space-y-3">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-ink">Topic</p>
+                  <p className="text-xs text-muted">
+                    Seleziona uno o piu tag esistenti. Il filtro e condivisibile via URL.
+                  </p>
+                </div>
+              </div>
+
+              {filterOptions.topics.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-line bg-canvas px-4 py-3 text-sm text-muted">
+                  Nessun topic disponibile. Carica il primo audio per iniziare a filtrare.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {filterOptions.topics.map((topic) => {
+                    const isSelected = selectedTopics.includes(topic);
+
+                    return (
+                      <label key={topic} className="cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="topics"
+                          value={topic}
+                          defaultChecked={isSelected}
+                          className="peer sr-only"
+                        />
+                        <span className="inline-flex rounded-full border border-line bg-white px-3 py-2 text-xs font-medium text-muted transition peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">
+                          {topic}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:opacity-90"
               >
-                Reset
-              </Link>
-            ) : null}
+                Cerca
+              </button>
+
+              {hasActiveFilters ? (
+                <Link
+                  href="/"
+                  className="rounded-full border border-line px-5 py-3 text-sm font-medium text-muted transition hover:border-ink/10 hover:text-ink"
+                >
+                  Reset
+                </Link>
+              ) : null}
+            </div>
           </form>
         </div>
 
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted">{items.length} elementi</p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm text-muted">{resultsLabel}</p>
+
           {hasActiveFilters ? (
-            <p className="text-sm text-muted">
-              {selectedTopic ? `Topic: ${selectedTopic}` : "Tutti i topic"}
-              {" · "}
-              {selectedCourse ? `Corso: ${selectedCourse}` : "Tutti i corsi"}
-            </p>
+            <div className="flex flex-wrap gap-2">
+              {selectedQuery ? (
+                <Link
+                  href={buildFilterHref({
+                    course: selectedCourse,
+                    topics: selectedTopics,
+                    topicMode,
+                  })}
+                  className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
+                >
+                  Query: {selectedQuery} ×
+                </Link>
+              ) : null}
+
+              {selectedCourse ? (
+                <Link
+                  href={buildFilterHref({
+                    query: selectedQuery,
+                    topics: selectedTopics,
+                    topicMode,
+                  })}
+                  className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
+                >
+                  Corso: {selectedCourse} ×
+                </Link>
+              ) : null}
+
+              {selectedTopics.map((topic) => (
+                <Link
+                  key={topic}
+                  href={buildFilterHref({
+                    query: selectedQuery,
+                    course: selectedCourse,
+                    topics: selectedTopics.filter(
+                      (selectedTopic) => selectedTopic !== topic,
+                    ),
+                    topicMode,
+                  })}
+                  className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/10 hover:text-ink"
+                >
+                  Topic: {topic} ×
+                </Link>
+              ))}
+            </div>
           ) : null}
         </div>
 
         {items.length === 0 ? (
           <div className="rounded-xl2 border border-dashed border-line bg-panel p-8 text-sm text-muted">
             {hasActiveFilters
-              ? "Nessun audio corrisponde ai filtri selezionati. Prova a resettarli o a scegliere una combinazione diversa."
+              ? "Nessun audio corrisponde ai filtri correnti. Modifica query, topic o corso per ampliare la ricerca."
               : "Nessun audio presente. Vai su Upload per aggiungere il primo file."}
           </div>
         ) : (

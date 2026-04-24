@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { promisify } from "node:util";
+import { normalizeTopics } from "../lib/topics";
 
 const execFileAsync = promisify(execFile);
 const R2_BUCKET_NAME = "audio-paper-library";
@@ -15,6 +16,10 @@ type AudioItemRow = {
   duration: number | string | null;
   createdAt: string;
   lastPositionSeconds: number | string;
+};
+
+type AudioItemWithTopics = AudioItemRow & {
+  topics: string[];
 };
 
 type D1Response<T> = {
@@ -105,7 +110,28 @@ async function loadAudioItem(audioId: string) {
     [audioId],
   );
 
-  return rows[0] ?? null;
+  const item = rows[0];
+
+  if (!item) {
+    return null;
+  }
+
+  const topicRows = await queryD1<{ name: string }>(
+    `SELECT t.name
+     FROM audio_topics at
+     INNER JOIN topics t ON t.id = at.topic_id
+     WHERE at.audio_id = ?
+     ORDER BY t.name COLLATE NOCASE ASC`,
+    [audioId],
+  );
+
+  return {
+    ...item,
+    topics:
+      topicRows.length > 0
+        ? topicRows.map((row) => row.name)
+        : normalizeTopics(item.topic),
+  } satisfies AudioItemWithTopics;
 }
 
 async function deleteFromR2(storageKey: string) {
@@ -127,6 +153,7 @@ async function deleteFromR2(storageKey: string) {
 async function deleteFromD1(audioId: string) {
   console.log("[delete-audio] deleting metadata from D1", { audioId });
 
+  await queryD1("DELETE FROM audio_topics WHERE audio_id = ?", [audioId]);
   await queryD1("DELETE FROM AudioItem WHERE id = ?", [audioId]);
 
   console.log("[delete-audio] D1 delete completed", { audioId });
@@ -171,7 +198,7 @@ async function main() {
   console.log("Delete summary");
   console.log(`id: ${item.id}`);
   console.log(`title: ${item.title}`);
-  console.log(`topic: ${item.topic}`);
+  console.log(`topics: ${item.topics.join(", ")}`);
   console.log(`course: ${item.course}`);
   console.log(`filePath: ${item.filePath}`);
   console.log(`storageKey: ${storageKey}`);

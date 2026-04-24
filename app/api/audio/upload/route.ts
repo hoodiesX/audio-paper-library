@@ -4,7 +4,8 @@ import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextResponse } from "next/server";
 import { createAudioStorageKey, isAllowedAudioFile } from "@/lib/audio";
 import { createAudioItem } from "@/lib/audio-repository";
-import { StorageEnv, uploadAudio } from "@/lib/storage";
+import { StorageEnv, deleteAudioObject, uploadAudio } from "@/lib/storage";
+import { normalizeTopics } from "@/lib/topics";
 import {
   isTurnstileEnabled,
   normalizeMetadataValue,
@@ -37,7 +38,10 @@ export async function POST(request: Request) {
     console.log("[audio-upload] formData parsed");
 
     const title = normalizeMetadataValue(formData.get("title"));
-    const topic = normalizeMetadataValue(formData.get("topic"));
+    const topics = normalizeTopics([
+      ...formData.getAll("topics").map((value) => normalizeMetadataValue(value)),
+      normalizeMetadataValue(formData.get("topic")),
+    ]);
     const course = normalizeMetadataValue(formData.get("course"));
     const file = formData.get("file");
     const turnstileToken = normalizeMetadataValue(formData.get("turnstileToken"));
@@ -46,7 +50,7 @@ export async function POST(request: Request) {
 
     const metadataValidation = validateUploadMetadata({
       title,
-      topic,
+      topics,
       course,
     });
 
@@ -91,7 +95,7 @@ export async function POST(request: Request) {
 
     console.log("[audio-upload] metadata validated", {
       title,
-      topic,
+      topics,
       course,
       fileName: file.name,
       fileType: file.type,
@@ -147,14 +151,31 @@ export async function POST(request: Request) {
     const filePath = await uploadAudio(file, storageKey, runtimeEnv as StorageEnv);
     console.log("[audio-upload] R2 upload completed", { filePath });
 
-    console.log("[audio-upload] DB save started");
-    const item = await createAudioItem({
-      title,
-      topic,
-      course,
-      filePath,
-    });
-    console.log("[audio-upload] DB save completed", { id: item.id });
+    let item;
+
+    try {
+      console.log("[audio-upload] DB save started");
+      item = await createAudioItem({
+        title,
+        topics,
+        course,
+        filePath,
+      });
+      console.log("[audio-upload] DB save completed", { id: item.id });
+    } catch (error) {
+      console.error("[audio-upload] DB save failed, rolling back uploaded file", {
+        storageKey,
+        error,
+      });
+
+      try {
+        await deleteAudioObject(storageKey, runtimeEnv as StorageEnv);
+      } catch (rollbackError) {
+        console.error("[audio-upload] rollback delete failed", rollbackError);
+      }
+
+      throw error;
+    }
 
     console.log("[audio-upload] response returned");
     return NextResponse.json(item, { status: 201 });
